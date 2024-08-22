@@ -39,7 +39,7 @@ type eventBroker struct {
 	// All the dispatchers that register to the eventBroker.
 	dispatchers sync.Map
 	// changedCh is used to notify span subscription has new events.
-	changedCh chan subscriptionChange
+	changedCh []chan subscriptionChange
 	// taskPool is used to store the scan tasks and merge the tasks of same dispatcher.
 	// TODO: Make it support merge the tasks of the same table span, even if the tasks are from different dispatchers.
 	taskPool *scanTaskPool
@@ -78,7 +78,7 @@ func newEventBroker(
 		msgSender:     mc,
 		// The size of the channel is 16 times of the defaultChannelSize, since the eventBroker may have many dispatchers.
 		// Otherwise, the resolvedTs may be delayed.
-		changedCh:                              make(chan subscriptionChange, defaultChannelSize*16),
+		changedCh:                              make([]chan subscriptionChange, 16),
 		taskPool:                               newScanTaskPool(),
 		scanWorkerCount:                        defaultScanWorkerCount,
 		messageCh:                              make(chan wrapEvent, defaultChannelSize),
@@ -90,7 +90,10 @@ func newEventBroker(
 		metricEventServiceDispatcherResolvedTs: metrics.EventServiceResolvedTsLagGauge.WithLabelValues("dispatcher"),
 		metricTaskInQueueDuration:              metrics.EventServiceScanTaskInQueueDuration,
 	}
-	c.runGenerateScanTask(ctx)
+	for i := 0; i < 16; i++ {
+		c.changedCh[i] = make(chan subscriptionChange, defaultChannelSize)
+		c.runGenerateScanTask(ctx, i)
+	}
 	c.runScanWorker(ctx)
 	c.runSendMessageWorker(ctx)
 	c.updateMetrics(ctx)
@@ -116,14 +119,16 @@ func (c *eventBroker) sendWatermark(
 }
 
 func (c *eventBroker) onAsyncNotify(change subscriptionChange) {
+	idx := change.dispatcherInfo.GetTableSpan().TableID % 16
 	select {
-	case c.changedCh <- change:
+	case c.changedCh[idx] <- change:
 	default:
 		metrics.EventBrokerHanldeChangeEvent.WithLabelValues("drop").Inc()
 	}
 }
 
-func (c *eventBroker) runGenerateScanTask(ctx context.Context) {
+func (c *eventBroker) runGenerateScanTask(ctx context.Context, idx int) {
+	inputCh := c.changedCh[idx]
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
@@ -131,7 +136,7 @@ func (c *eventBroker) runGenerateScanTask(ctx context.Context) {
 			select {
 			case <-ctx.Done():
 				return
-			case change := <-c.changedCh:
+			case change := <-inputCh:
 				v, ok := c.dispatchers.Load(change.dispatcherInfo.GetID())
 				// The dispatcher may be deleted. In such case, we just the stale notification.
 				if !ok {
