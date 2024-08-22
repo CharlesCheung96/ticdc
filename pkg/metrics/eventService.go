@@ -64,6 +64,13 @@ var (
 			Help:      "The duration of scanning task in queue",
 			Buckets:   prometheus.DefBuckets,
 		})
+	EventBrokerHanldeChangeEvent = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "ticdc",
+			Subsystem: "event_broker",
+			Name:      "handle_change_event",
+			Help:      "Total count of handle change event.",
+		}, []string{"type"})
 )
 
 // InitMetrics registers all metrics in this file.
@@ -74,4 +81,5 @@ func InitEventServiceMetrics(registry *prometheus.Registry) {
 	registry.MustRegister(EventServiceResolvedTsGauge)
 	registry.MustRegister(EventServiceResolvedTsLagGauge)
 	registry.MustRegister(EventServiceScanTaskInQueueDuration)
+	registry.MustRegister(EventBrokerHanldeChangeEvent)
 }

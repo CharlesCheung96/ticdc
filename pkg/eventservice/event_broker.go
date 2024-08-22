@@ -116,7 +116,11 @@ func (c *eventBroker) sendWatermark(
 }
 
 func (c *eventBroker) onAsyncNotify(change subscriptionChange) {
-	c.changedCh <- change
+	select {
+	case c.changedCh <- change:
+	default:
+		metrics.EventBrokerHanldeChangeEvent.WithLabelValues("drop").Inc()
+	}
 }
 
 func (c *eventBroker) runGenerateScanTask(ctx context.Context) {
