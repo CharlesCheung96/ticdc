@@ -183,15 +183,15 @@ func (c *eventBroker) sendDDL(remoteID messaging.ServerId, e common.DDLEvent, d 
 }
 
 // TODO: handle error properly.
-func (c *eventBroker) doScan(task *scanTask) {
-	dataRange, needScan := task.dispatcherStat.getDataRange()
+func (c *eventBroker) doScan(d *dispatcherStat) {
+	dataRange, lastUpdateTime, needScan := d.getDataRange()
 	if !needScan {
 		return
 	}
-	c.metricTaskInQueueDuration.Observe(time.Since(task.createTime).Seconds())
+	c.metricTaskInQueueDuration.Observe(time.Since(lastUpdateTime).Seconds())
 
-	remoteID := messaging.ServerId(task.dispatcherStat.info.GetServerID())
-	dispatcherID := task.dispatcherStat.info.GetID()
+	remoteID := messaging.ServerId(d.info.GetServerID())
+	dispatcherID := d.info.GetID()
 	ddlEvents, endTs, err := c.schemaStore.GetNextDDLEvents(dataRange.Span.TableID, dataRange.StartTs, dataRange.EndTs)
 	if err != nil {
 		log.Panic("get ddl events failed", zap.Error(err))
@@ -203,16 +203,16 @@ func (c *eventBroker) doScan(task *scanTask) {
 	defer func() {
 		// drain the ddlEvents
 		for _, e := range ddlEvents {
-			c.sendDDL(remoteID, e, task.dispatcherStat)
+			c.sendDDL(remoteID, e, d)
 		}
 		// After all the events are sent, we send the watermark to the dispatcher.
-		c.sendWatermark(remoteID, dispatcherID, dataRange.EndTs, task.dispatcherStat.metricEventServiceSendResolvedTsCount)
-		task.dispatcherStat.watermark.Store(dataRange.EndTs)
+		c.sendWatermark(remoteID, dispatcherID, dataRange.EndTs, d.metricEventServiceSendResolvedTsCount)
+		d.watermark.Store(dataRange.EndTs)
 	}()
 
 	// 1. Fastpath: the dispatcher has no new events. In such case, we don't need to scan the event store.
 	// We just send the watermark to the dispatcher.
-	if dataRange.StartTs >= task.dispatcherStat.spanSubscription.maxEventCommitTs.Load() {
+	if dataRange.StartTs >= d.spanSubscription.maxEventCommitTs.Load() {
 		return
 	}
 
@@ -224,19 +224,19 @@ func (c *eventBroker) doScan(task *scanTask) {
 	defer func() {
 		eventCount, _ := iter.Close()
 		if eventCount != 0 {
-			task.dispatcherStat.metricSorterOutputEventCountKV.Add(float64(eventCount))
+			d.metricSorterOutputEventCountKV.Add(float64(eventCount))
 		}
 	}()
 	// 3. Get the events from the iterator and send them to the dispatcher.
 	sendTxn := func(t *common.DMLEvent) {
 		if t != nil {
 			for len(ddlEvents) > 0 && t.CommitTs > ddlEvents[0].CommitTS {
-				c.sendDDL(remoteID, ddlEvents[0], task.dispatcherStat)
+				c.sendDDL(remoteID, ddlEvents[0], d)
 				ddlEvents = ddlEvents[1:]
 			}
 			c.messageCh <- newWrapTxnEvent(remoteID, t)
-			task.dispatcherStat.watermark.Store(t.CommitTs)
-			task.dispatcherStat.metricEventServiceSendKvCount.Add(float64(t.Len()))
+			d.watermark.Store(t.CommitTs)
+			d.metricEventServiceSendKvCount.Add(float64(t.Len()))
 		}
 	}
 	var txnEvent *common.DMLEvent
@@ -251,14 +251,14 @@ func (c *eventBroker) doScan(task *scanTask) {
 			sendTxn(txnEvent)
 			return
 		}
-		if e.CRTs < task.dispatcherStat.watermark.Load() {
+		if e.CRTs < d.watermark.Load() {
 			// If the commitTs of the event is less than the watermark of the dispatcher,
 			// there are some bugs in the eventStore.
-			log.Panic("should never Happen", zap.Uint64("commitTs", e.CRTs), zap.Uint64("watermark", task.dispatcherStat.watermark.Load()))
+			log.Panic("should never Happen", zap.Uint64("commitTs", e.CRTs), zap.Uint64("watermark", d.watermark.Load()))
 		}
 		if isNewTxn {
 			sendTxn(txnEvent)
-			tableID := task.dispatcherStat.info.GetTableSpan().TableID
+			tableID := d.info.GetTableSpan().TableID
 			tableInfo, err := c.schemaStore.GetTableInfo(tableID, e.CRTs-1)
 			if err != nil {
 				// FIXME handle the error
@@ -400,10 +400,7 @@ func (c *eventBroker) onNotify(s *spanSubscription, watermark uint64) {
 	s.dispatchers.RLock()
 	defer s.dispatchers.RUnlock()
 	for _, stat := range s.dispatchers.m {
-		c.taskPool.pushTask(&scanTask{
-			dispatcherStat: stat,
-			createTime:     time.Now(),
-		})
+		c.taskPool.pushTask(stat)
 	}
 }
 
@@ -514,7 +511,8 @@ func newDispatcherStat(
 	return dispStat
 }
 
-func (a *dispatcherStat) getDataRange() (*common.DataRange, bool) {
+func (a *dispatcherStat) getDataRange() (*common.DataRange, time.Time, bool) {
+	lastUpdateTime := a.spanSubscription.lastUpdate.Load().(time.Time)
 	r := &common.DataRange{
 		Span:    a.info.GetTableSpan(),
 		StartTs: a.watermark.Load(),
@@ -522,9 +520,9 @@ func (a *dispatcherStat) getDataRange() (*common.DataRange, bool) {
 	}
 	if r.StartTs >= r.EndTs {
 		// no kv events within (start, end]
-		return r, false
+		return r, lastUpdateTime, false
 	}
-	return r, true
+	return r, lastUpdateTime, true
 }
 
 // spanSubscription store the latest progress of the table span in the event store.
@@ -593,50 +591,35 @@ func (s *spanSubscription) onNewEvent(raw *common.RawKVEntry) {
 	util.MustCompareAndMonotonicIncrease(&s.maxEventCommitTs, raw.CRTs)
 }
 
-type scanTask struct {
-	dispatcherStat *dispatcherStat
-	createTime     time.Time
-}
-
 type scanTaskQueue struct {
-	taskSet map[common.DispatcherID]*scanTask
 	// pendingTaskQueue is used to store the tasks that are waiting to be handled by the scan workers.
 	// The length of the pendingTaskQueue is equal to the number of the scan workers.
-	pendingTaskQueue []chan *scanTask
+	pendingTaskQueue []chan *dispatcherStat
 }
 
 func newScanTaskPool() *scanTaskQueue {
 	res := &scanTaskQueue{
-		taskSet:          make(map[common.DispatcherID]*scanTask),
-		pendingTaskQueue: make([]chan *scanTask, defaultScanWorkerCount),
+		pendingTaskQueue: make([]chan *dispatcherStat, defaultScanWorkerCount),
 	}
 	for i := 0; i < defaultScanWorkerCount; i++ {
-		res.pendingTaskQueue[i] = make(chan *scanTask, defaultChannelSize)
+		res.pendingTaskQueue[i] = make(chan *dispatcherStat, defaultChannelSize)
 	}
 	return res
 }
 
 // pushTask pushes a task to the pool,
 // and merge the task if the task is overlapped with the existing tasks.
-func (p *scanTaskQueue) pushTask(task *scanTask) {
-	id := task.dispatcherStat.info.GetID()
-	spanTask := p.taskSet[id]
-	// There is already a task for the dispatcher, we need to merge the task to the existing task.
-	if spanTask == nil {
-		spanTask = task
-	}
+func (p *scanTaskQueue) pushTask(task *dispatcherStat) {
 	select {
-	case p.pendingTaskQueue[spanTask.dispatcherStat.workerIndex] <- spanTask:
-		// Send the task to the corresponding scan worker and remove it from the taskSet.
-		delete(p.taskSet, id)
+	case p.pendingTaskQueue[task.workerIndex] <- task:
 	default:
 		// The task pool is full, we just add it back
 		// to the taskSet, and it will be merged in the next round.
-		p.taskSet[id] = spanTask
+		// TODO: add metrics
 	}
 }
 
-func (p *scanTaskQueue) popTask(chanIndex int) <-chan *scanTask {
+func (p *scanTaskQueue) popTask(chanIndex int) <-chan *dispatcherStat {
 	return p.pendingTaskQueue[chanIndex]
 }
 

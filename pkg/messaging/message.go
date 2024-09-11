@@ -109,6 +109,7 @@ func (b *Bytes) Unmarshal(data []byte) error {
 
 type RegisterDispatcherRequest struct {
 	*eventpb.RegisterDispatcherRequest
+	id common.DispatcherID
 }
 
 func (r RegisterDispatcherRequest) Marshal() ([]byte, error) {
@@ -116,11 +117,16 @@ func (r RegisterDispatcherRequest) Marshal() ([]byte, error) {
 }
 
 func (r RegisterDispatcherRequest) Unmarshal(data []byte) error {
-	return r.RegisterDispatcherRequest.Unmarshal(data)
+	err := r.RegisterDispatcherRequest.Unmarshal(data)
+	if err != nil {
+		return err
+	}
+	r.id = common.NewDispatcherIDFromPB(r.DispatcherId)
+	return nil
 }
 
 func (r RegisterDispatcherRequest) GetID() common.DispatcherID {
-	return common.NewDispatcherIDFromPB(r.DispatcherId)
+	return r.id
 }
 
 func (r RegisterDispatcherRequest) GetClusterID() uint64 {
