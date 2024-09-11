@@ -3,6 +3,7 @@ package eventservice
 import (
 	"context"
 	"hash/crc32"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -65,6 +66,7 @@ type eventBroker struct {
 	// cancel is used to cancel the goroutines spawned by the eventBroker.
 	cancel context.CancelFunc
 
+	metricDispatcherCount                  prometheus.Gauge
 	metricEventServicePullerResolvedTs     prometheus.Gauge
 	metricEventServiceDispatcherResolvedTs prometheus.Gauge
 	metricEventServiceResolvedTsLag        prometheus.Gauge
@@ -96,6 +98,7 @@ func newEventBroker(
 		resolvedTsCaches:                       make(map[messaging.ServerId]*resolvedTsCache),
 		cancel:                                 cancel,
 		wg:                                     wg,
+		metricDispatcherCount:                  metrics.EventServiceDispatcherGuage.WithLabelValues(strconv.FormatUint(id, 10)),
 		metricEventServicePullerResolvedTs:     metrics.EventServiceResolvedTsGauge,
 		metricEventServiceResolvedTsLag:        metrics.EventServiceResolvedTsLagGauge.WithLabelValues("puller"),
 		metricEventServiceDispatcherResolvedTs: metrics.EventServiceResolvedTsLagGauge.WithLabelValues("dispatcher"),
@@ -411,6 +414,8 @@ func (c *eventBroker) addDispatcher(info DispatcherInfo) {
 		panic(err)
 	}
 
+	defer c.metricDispatcherCount.Inc()
+
 	start := time.Now()
 	id := info.GetID()
 	span := info.GetTableSpan()
@@ -450,6 +455,7 @@ func (c *eventBroker) addDispatcher(info DispatcherInfo) {
 }
 
 func (c *eventBroker) removeDispatcher(dispatcherInfo DispatcherInfo) {
+	defer c.metricDispatcherCount.Dec()
 	id := dispatcherInfo.GetID()
 	stat, ok := c.dispatchers.Load(id)
 	if !ok {

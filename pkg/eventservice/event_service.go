@@ -12,6 +12,7 @@ import (
 	"github.com/flowbehappy/tigate/pkg/messaging"
 	"github.com/pingcap/log"
 	"github.com/pingcap/tiflow/pkg/config"
+	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 )
 
@@ -46,6 +47,8 @@ type eventService struct {
 	// TODO: use a better way to cache the acceptorInfos
 	acceptorInfoCh chan DispatcherInfo
 	tz             *time.Location
+
+	metricDispatcherCount prometheus.Gauge
 }
 
 func NewEventService() common.SubModule {
