@@ -617,13 +617,7 @@ func newScanTaskPool() *scanTaskQueue {
 // pushTask pushes a task to the pool,
 // and merge the task if the task is overlapped with the existing tasks.
 func (p *scanTaskQueue) pushTask(task *dispatcherStat) {
-	select {
-	case p.pendingTaskQueue[task.workerIndex] <- task:
-	default:
-		// The task pool is full, we just add it back
-		// to the taskSet, and it will be merged in the next round.
-		// TODO: add metrics
-	}
+	p.pendingTaskQueue[task.workerIndex] <- task
 }
 
 func (p *scanTaskQueue) popTask(chanIndex int) <-chan *dispatcherStat {
