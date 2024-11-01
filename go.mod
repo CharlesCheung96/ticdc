@@ -9,12 +9,12 @@ require (
 	github.com/DATA-DOG/go-sqlmock v1.5.0
 	github.com/IBM/sarama v1.41.2
 	github.com/apache/pulsar-client-go v0.11.0
-	github.com/aws/aws-sdk-go v1.55.5
 	github.com/aws/aws-sdk-go-v2 v1.19.1
 	github.com/aws/aws-sdk-go-v2/config v1.18.30
 	github.com/aws/aws-sdk-go-v2/credentials v1.13.29
 	github.com/aws/aws-sdk-go-v2/service/glue v1.58.1
 	github.com/benbjohnson/clock v1.3.5
+	github.com/bradleyjkemp/grpc-tools v0.2.5
 	github.com/cenkalti/backoff/v4 v4.2.1
 	github.com/cockroachdb/pebble v1.1.1
 	github.com/coreos/go-semver v0.3.1
@@ -99,6 +99,7 @@ require (
 	github.com/apache/thrift v0.16.0 // indirect
 	github.com/ardielle/ardielle-go v1.5.2 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect
+	github.com/aws/aws-sdk-go v1.55.5 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.13.6 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.1.36 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.4.30 // indirect
@@ -134,6 +135,7 @@ require (
 	github.com/danjacques/gofslock v0.0.0-20240212154529-d899e02bfe22 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.2.0 // indirect
+	github.com/desertbit/timer v0.0.0-20180107155436-c41aec40b27f // indirect
 	github.com/dgraph-io/ristretto v0.1.1 // indirect
 	github.com/dgryski/go-farm v0.0.0-20200201041132-a6ae2369ad13 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
@@ -189,6 +191,7 @@ require (
 	github.com/hashicorp/errwrap v1.0.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/hashicorp/go-uuid v1.0.3 // indirect
+	github.com/improbable-eng/grpc-web v0.12.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/influxdata/tdigest v0.0.1 // indirect
 	github.com/jarcoal/httpmock v1.2.0 // indirect
@@ -265,6 +268,7 @@ require (
 	github.com/robfig/cron v1.2.0 // indirect
 	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/rogpeppe/go-internal v1.12.0 // indirect
+	github.com/rs/cors v1.7.0 // indirect
 	github.com/sasha-s/go-deadlock v0.3.5 // indirect
 	github.com/segmentio/asm v1.2.0 // indirect
 	github.com/shirou/gopsutil/v3 v3.24.5 // indirect
